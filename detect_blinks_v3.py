@@ -69,32 +69,48 @@ def predict_eye_status(eyes, model, eye_image):
 # 检测眼睛是否眨眼
 def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
     current_time = time.time()
-    # 如果眼睛状态从开变成闭
+    # 眼睛状态从开变成闭，开始计时
     if status == "closed" and previous_status == "open":
-        # 眼睛状态从开变成闭，开始计时并标记长按开始
-        is_holding = True
-        if eye == "left":
-            pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
-            print("Left eye closed, mouse down")
-        elif eye == "right":
-            pyautogui.mouseDown(button='right')  # 模拟鼠标右键按下
-            print("Right eye closed, mouse down")
         return "closed", current_time, is_holding
-    elif status == "closed" and previous_status == "closed":
-        print("Continuous closed...")
-        # 眼睛持续闭合，但不再次按下鼠标，只更新时间
-        return "closed", previous_time, is_holding
+
+    # 眼睛状态从闭变为开，检查闭合时长
     elif status == "open" and previous_status == "closed":
-        # 眼睛从闭合变为睁开，停止长按
-        if is_holding:
+        # 检查闭合时长以决定是点击还是长按
+        if current_time - previous_time < 0.37:  # 假设小于0.37秒为点击, ""为长按经过测试0.37最符合我个人的操作习惯""
+            if not is_holding:
+                if eye == "left":
+                    pyautogui.click(button='left')  # 执行单击操作
+                    print("Left eye clicked, click left button")
+                elif eye == "right":
+                    pyautogui.click(button='right')
+                    print("Right eye clicked, click right button")
+        elif is_holding:
             if eye == "left":
                 pyautogui.mouseUp(button='left')  # 释放鼠标左键
-                print("Left eye open, mouse up")
+                print("Left eye open, release left button")
             elif eye == "right":
                 pyautogui.mouseUp(button='right')  # 释放鼠标右键
-                print("Right eye open, mouse up")
+                print("Right eye open, release right button")
         return "open", current_time, False
-        # 状态没有变化，返回原状态
+
+    # 如果眼睛持续闭合并且已经长按 不做操作
+    elif status == "closed" and previous_status == "closed" and is_holding:
+        # 眼睛持续闭合，但不再次按下鼠标，只更新时间
+        return "closed", previous_time, is_holding
+
+    # 眼睛持续闭合但还未触发长按（超过某个阈值，例如0.5秒）
+    elif status == "closed" and previous_status == "closed" and not is_holding:
+        if current_time - previous_time > 0.5:
+            is_holding = True
+            if eye == "left":
+                pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
+                print("Left eye closed, hold left button")
+            elif eye == "right":
+                pyautogui.mouseDown(button='right')  # 模拟鼠标右键按下
+                print("Right eye closed, hold right button")
+        return "closed", previous_time, is_holding
+
+    # 状态没有变化，返回原状态
     return previous_status, previous_time, is_holding
 
 
