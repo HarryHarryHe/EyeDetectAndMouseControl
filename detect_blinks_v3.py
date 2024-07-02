@@ -40,10 +40,12 @@ both_eyes_blinked = False  # 标志变量来记录双眼是否同时眨眼
 left_holding = False
 right_holding = False
 
+
 # 模型加载
 def load_the_model(model_path):
     # models/efficientnetb0-EyeDetection-92.83.h5
     return load_model(model_path)  # 加载模型
+
 
 # 模型预测
 def predict_eye_status(eyes, model, eye_image):
@@ -69,23 +71,30 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
     current_time = time.time()
     # 如果眼睛状态从开变成闭
     if status == "closed" and previous_status == "open":
-        # 更新时间和状态
-        return "closed", current_time, True  # 开始长按
+        # 眼睛状态从开变成闭，开始计时并标记长按开始
+        is_holding = True
+        if eye == "left":
+            pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
+            print("Left eye closed, mouse down")
+        elif eye == "right":
+            pyautogui.mouseDown(button='right')  # 模拟鼠标右键按下
+            print("Right eye closed, mouse down")
+        return "closed", current_time, is_holding
     elif status == "closed" and previous_status == "closed":
-        # 如果已经在长按状态且眼睛还是闭着
+        print("Continuous closed...")
+        # 眼睛持续闭合，但不再次按下鼠标，只更新时间
+        return "closed", previous_time, is_holding
+    elif status == "open" and previous_status == "closed":
+        # 眼睛从闭合变为睁开，停止长按
         if is_holding:
             if eye == "left":
-                pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
+                pyautogui.mouseUp(button='left')  # 释放鼠标左键
+                print("Left eye open, mouse up")
             elif eye == "right":
-                pyautogui.mouseDown(button='right')  # 模拟鼠标右键按下
-        return "closed", previous_time, True
-    elif status == "open" and previous_status == "closed":
-        # 如果眼睛睁开了，停止长按
-        if eye == "left":
-            pyautogui.mouseUp(button='left')  # 释放鼠标左键
-        elif eye == "right":
-            pyautogui.mouseUp(button='right')  # 释放鼠标右键
+                pyautogui.mouseUp(button='right')  # 释放鼠标右键
+                print("Right eye open, mouse up")
         return "open", current_time, False
+        # 状态没有变化，返回原状态
     return previous_status, previous_time, is_holding
 
 
