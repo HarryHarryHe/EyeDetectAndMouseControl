@@ -27,7 +27,7 @@ print("[INFO] starting video stream...")
 vs = VideoStream(src=0).start()
 time.sleep(2.0)
 i = 1
-padding = 10  # 设置扩展像素数
+padding = 10  # 设置扩展像素数，方便获取更多眼部区域用于模型预测
 
 # 初始化一些用于检测眼睛状态的变量
 left_eye_status = "open"  # 初始状态设为开
@@ -35,15 +35,17 @@ right_eye_status = "open"
 left_blink_time = 0
 right_blink_time = 0
 blink_threshold = 0.5  # 设置眨眼识别的时间阈值（秒）
-both_eyes_blinked = False  # 添加一个标志变量来记录双眼是否同时眨眼
+both_eyes_blinked = False  # 标志变量来记录双眼是否同时眨眼
+# 在初始化区域增加
+left_holding = False
+right_holding = False
 
-
-# 定义模型加载和预测的函数
+# 模型加载
 def load_the_model(model_path):
     # models/efficientnetb0-EyeDetection-92.83.h5
     return load_model(model_path)  # 加载模型
 
-
+# 模型预测
 def predict_eye_status(eyes, model, eye_image):
     # 将灰度图像扩展为三通道
     gray_image = np.stack((eye_image,) * 3, axis=-1)
@@ -62,25 +64,29 @@ def predict_eye_status(eyes, model, eye_image):
     return predicted_class[0]
 
 
-def check_eye_blink(eye, status, previous_status, previous_time):
+# 检测眼睛是否眨眼
+def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
     current_time = time.time()
-    if status != previous_status:
-        if status == "closed":
-            # 更新时间和状态
-            return "closed", current_time
-        elif status == "open" and previous_status == "closed":
-            if (current_time - previous_time) <= blink_threshold:
-                # 检测到眨眼
-                if eye == "left":
-                    # 执行鼠标左键点击
-                    pyautogui.click(button='left')
-                    print(f"Left eye blink detected and click left mouse button")
-                elif eye == "right":
-                    # 执行鼠标右键点击
-                    pyautogui.click(button='right')
-                    print(f"Right eye blink detected and click right mouse button")
-            return "open", current_time
-    return previous_status, previous_time
+    # 如果眼睛状态从开变成闭
+    if status == "closed" and previous_status == "open":
+        # 更新时间和状态
+        return "closed", current_time, True  # 开始长按
+    elif status == "closed" and previous_status == "closed":
+        # 如果已经在长按状态且眼睛还是闭着
+        if is_holding:
+            if eye == "left":
+                pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
+            elif eye == "right":
+                pyautogui.mouseDown(button='right')  # 模拟鼠标右键按下
+        return "closed", previous_time, True
+    elif status == "open" and previous_status == "closed":
+        # 如果眼睛睁开了，停止长按
+        if eye == "left":
+            pyautogui.mouseUp(button='left')  # 释放鼠标左键
+        elif eye == "right":
+            pyautogui.mouseUp(button='right')  # 释放鼠标右键
+        return "open", current_time, False
+    return previous_status, previous_time, is_holding
 
 
 # 从视频流循环帧
@@ -130,10 +136,13 @@ while True:
                 both_eyes_blinked = False
 
             if not both_eyes_blinked:
-                # 检查左眼是否有意义的眨眼
-                left_eye_status, left_blink_time = check_eye_blink("left", left_status, left_eye_status, left_blink_time)
+                # # 检查左眼是否有意义的眨眼 在循环中更新
+                left_eye_status, left_blink_time, left_holding = check_eye_blink("left", left_status, left_eye_status,
+                                                                                 left_blink_time, left_holding)
                 # 检查右眼是否有意义的眨眼
-                right_eye_status, right_blink_time = check_eye_blink("right", right_status, right_eye_status, right_blink_time)
+                right_eye_status, right_blink_time, right_holding = check_eye_blink("right", right_status,
+                                                                                    right_eye_status, right_blink_time,
+                                                                                    right_holding)
         else:
             left_status = 'Unknown'
             right_status = 'Unknown'
@@ -145,7 +154,7 @@ while True:
     cv2.imshow("Frame", frame)
     key = cv2.waitKey(1) & 0xFF
 
-    # 如果按下“q”键，则退出循环
+    # 按下“q”键，退出循环
     if key == ord("q"):
         break
 
