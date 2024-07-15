@@ -31,6 +31,7 @@ control_active = False  # 控制鼠标的激活状态
 
 # 平滑滤波器初始化
 last_x, last_y = screen_width // 2, screen_height // 2
+# 平滑因子
 smooth_factor = 5
 while True:
     # 读取视频帧并进行处理
