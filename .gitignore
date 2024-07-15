@@ -1,5 +1,6 @@
 imgs/
-
+models/
+gaze_tracking/trained_models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
