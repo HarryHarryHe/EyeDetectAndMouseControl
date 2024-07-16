@@ -12,3 +12,4 @@
 
 ### 2. 
 启动：python .\detect_blinks_v3.py --shape-predictor models/shape_predictor_68_face_landmarks.dat --model models/efficientnetb0-EyeDetection-92.83.h5
+启动：python .\eye_finger_control.py --shape-predictor models/shape_predictor_68_face_landmarks.dat --model models/efficientnetb0-EyeDetection-92.83.h5
