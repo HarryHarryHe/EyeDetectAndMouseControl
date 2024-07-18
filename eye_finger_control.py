@@ -6,7 +6,6 @@ import imutils
 import numpy as np
 from imutils import face_utils
 from imutils.video import VideoStream
-import keras
 from keras.models import load_model
 import pyautogui
 import mediapipe as mp
