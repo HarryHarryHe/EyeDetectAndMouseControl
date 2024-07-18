@@ -10,6 +10,7 @@ import keras
 from keras.models import load_model
 import pyautogui
 import mediapipe as mp
+import pyttsx3
 
 # Initialize dlib's face detector and facial landmark predictor
 print("[INFO] loading facial landmark predictor...")
@@ -45,6 +46,11 @@ CONTROL_ACTIVE = False  # Flag for mouse control activation
 LEFT_EYE_STATUS, RIGHT_EYE_STATUS = "open", "open"
 LEFT_BLINK_TIME, RIGHT_BLINK_TIME = 0, 0
 BOTH_EYES_BLINKED, LEFT_HOLDING, RIGHT_HOLDING = False, False, False
+
+# Initialize pyttsx3 engine for text-to-speech output
+engine = pyttsx3.init()
+BOTH_EYES_CLOSED_START_TIME = 0
+EXIT_BLINK_TIME = 5.0  # 5 seconds of both eyes closed to exit
 
 # Get screen size
 screen_width, screen_height = pyautogui.size()
@@ -168,7 +174,7 @@ def process_face_landmarks(rects, gray):
             rects: Detected face rectangles.
             gray (numpy.ndarray): Grayscale version of the current frame.
     """
-    global LEFT_EYE_STATUS, RIGHT_EYE_STATUS, LEFT_BLINK_TIME, RIGHT_BLINK_TIME, LEFT_HOLDING, RIGHT_HOLDING, BOTH_EYES_BLINKED
+    global LEFT_EYE_STATUS, RIGHT_EYE_STATUS, LEFT_BLINK_TIME, RIGHT_BLINK_TIME, LEFT_HOLDING, RIGHT_HOLDING, BOTH_EYES_BLINKED, BOTH_EYES_CLOSED_START_TIME
     # Process each detected face
     for rect in rects:
         shape = predictor(gray, rect)
@@ -205,10 +211,17 @@ def process_face_landmarks(rects, gray):
 
             # Check for simultaneous blink
             if left_status == 'closed' and right_status == 'closed':
+                if BOTH_EYES_CLOSED_START_TIME == 0:
+                    # Initialize the timer for both eyes closed
+                    BOTH_EYES_CLOSED_START_TIME = time.time()
+                # If both eyes have been closed for 5 seconds, exit the program
+                elif time.time() - BOTH_EYES_CLOSED_START_TIME > EXIT_BLINK_TIME:
+                    return True  # Signal to exit the program
                 BOTH_EYES_BLINKED = True
-                print("Both eyes blinked simultaneously")
+                # print("Both eyes blinked simultaneously")
             else:
                 BOTH_EYES_BLINKED = False
+                BOTH_EYES_CLOSED_START_TIME = 0
 
             # Process individual eye blinks if not a simultaneous blink
             if not BOTH_EYES_BLINKED:
@@ -220,6 +233,7 @@ def process_face_landmarks(rects, gray):
         else:
             # Set eye status to unknown if eye images are invalid
             LEFT_EYE_STATUS, RIGHT_EYE_STATUS = 'Unknown', 'Unknown'
+    return False
 
 
 def predict_eye_status(eye_image):
@@ -268,18 +282,22 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
             if not is_holding:
                 if eye == "left":
                     pyautogui.click(button='left')  # Perform a single left click operation
-                    print("Left eye clicked, click left button")
+                    speak("Left Click")
+                    # print("Left eye clicked, click left button")
                 elif eye == "right":
                     pyautogui.click(button='right')  # Perform a single right click operation
-                    print("Right eye clicked, click right button")
+                    speak("Right Click")
+                    # print("Right eye clicked, click right button")
         # If the eye closure lasts for more than 0.37 seconds, hold the mouse button
         elif is_holding:
             if eye == "left":
                 pyautogui.mouseUp(button='left')  # Release left button
-                print("Left eye open, release left button")
+                speak("Left Up")
+                # print("Left eye open, release left button")
             elif eye == "right":
                 pyautogui.mouseUp(button='right')  # Release right button
-                print("Right eye open, release right button")
+                speak("Right UP")
+                # print("Right eye open, release right button")
         return "open", current_time, False
 
     # If the eye continues to be closed and has already been held down, do nothing
@@ -293,14 +311,27 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
             is_holding = True
             if eye == "left":
                 pyautogui.mouseDown(button='left')  # Simulate pressing down the left mouse button
-                print("Left eye closed, hold left button")
+                speak("Left Down")
+                # print("Left eye closed, hold left button")
             elif eye == "right":
                 pyautogui.mouseDown(button='right')  # Simulate pressing down the right mouse button
-                print("Right eye closed, hold right button")
+                speak("Right Down")
+                # print("Right eye closed, hold right button")
         return "closed", previous_time, is_holding
 
     # No state change, return the original state
     return previous_status, previous_time, is_holding
+
+
+def speak(text):
+    """
+        Speak the given text using the pyttsx3 engine.
+
+        Args:
+            text (str): The text to be spoken.
+    """
+    engine.say(text)
+    engine.runAndWait()
 
 
 def main():
@@ -317,17 +348,22 @@ def main():
 
         frame, gray, rgb = process_frame(frame)
         new_center_y = draw_finger_control_area(frame)
-
         rects = detector(gray, 0)
         results = hands.process(rgb)
 
         process_hand_landmarks(results, frame, new_center_y)
-        process_face_landmarks(rects, gray)
+        exit_program = process_face_landmarks(rects, gray)
+
+        if exit_program:
+            print("Exiting program due to long eye closure")
+            speak("System Exit")
+            break
 
         cv2.imshow("Frame", frame)
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord("q"):
+            speak("System Exit")
             break
 
     cv2.destroyAllWindows()
@@ -335,4 +371,5 @@ def main():
 
 
 if __name__ == '__main__':
+    speak("System Starting, Close eyes lasting for five seconds to stop the program")
     main()
