@@ -66,12 +66,172 @@ center_x, center_y = frame_width // 2, frame_height // 2
 last_x, last_y = screen_width // 2, screen_height // 2
 SMOOTH_FACTOR = 3  # Smoothing factor for mouse movement
 
-'''
-    @description: Function to predict eye status (open/closed)
-    @param: eye_image: eye image for prediction
-    @return: predicted eye status (open/closed)
-'''
+
+def setup_video_stream():
+    """
+        Set up and start the video stream from the webcam.
+
+        Returns:
+            VideoStream: The initialized video stream object.
+    """
+    print("[INFO] starting video stream...")
+    vs = VideoStream(src=0).start()
+    time.sleep(2.0)
+    return vs
+
+
+def process_frame(frame):
+    """
+        Process the input frame by flipping, resizing, and converting color spaces.
+
+        Args:
+            frame (numpy.ndarray): The input frame from the video stream.
+
+        Returns:
+            tuple: A tuple containing the processed frame, grayscale frame, and RGB frame.
+    """
+    frame = cv2.flip(frame, 1)
+    frame = imutils.resize(frame)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    return frame, gray, rgb
+
+
+def draw_finger_control_area(frame):
+    """
+        Draw the finger control area on the frame(red point and green rectangle).
+
+        Args:
+            frame (numpy.ndarray): The input frame to draw on.
+
+        Returns:
+            int: The y-coordinate of the new center of the control area.
+    """
+    # Calculate the new center for the control(mapping) area
+    new_center_y = CONTROL_AREA_HEIGHT // 2 + RECTANGLE_PADDING_TOP
+    # Draw a circle at the center of the control(mapping) area
+    cv2.circle(frame, (center_x, new_center_y), 10, (0, 0, 255), -1)
+    # Draw a rectangle to represent the control(mapping) area
+    cv2.rectangle(frame, (center_x - CONTROL_AREA_WIDTH, new_center_y - CONTROL_AREA_HEIGHT),
+                  (center_x + CONTROL_AREA_WIDTH, new_center_y + CONTROL_AREA_HEIGHT), (0, 255, 0), 2)
+    return new_center_y
+
+
+def process_hand_landmarks(results, frame, new_center_y):
+    """
+        Process hand landmarks for mouse control.
+
+        Args:
+            results: MediaPipe hand detection results.
+            frame (numpy.ndarray): The current video frame.
+            new_center_y (int): The y-coordinate of the control area center.
+    """
+    global CONTROL_ACTIVE, last_x, last_y
+    # If hand landmarks are detected
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # Get the coordinates of the index finger tip
+            tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+            x, y = int(tip.x * frame_width), int(tip.y * frame_height)
+
+            # Check if the finger tip is within the control(mapping) area
+            if (center_x - CONTROL_AREA_WIDTH <= x <= center_x + CONTROL_AREA_WIDTH) and (
+                    new_center_y - CONTROL_AREA_HEIGHT <= y <= new_center_y + CONTROL_AREA_HEIGHT):
+                # Activate mouse control if not already active
+                if not CONTROL_ACTIVE:
+                    CONTROL_ACTIVE = True
+                    pyautogui.moveTo(screen_width / 2, screen_height / 2)
+
+                # Map finger position to screen coordinates
+                screen_x = np.interp(x, [center_x - CONTROL_AREA_WIDTH, center_x + CONTROL_AREA_WIDTH],
+                                     [0 - CONTROL_AREA_WIDTH_PADDING, screen_width + CONTROL_AREA_WIDTH_PADDING])
+                screen_y = np.interp(y, [new_center_y - CONTROL_AREA_HEIGHT, new_center_y + CONTROL_AREA_HEIGHT],
+                                     [0 - CONTROL_AREA_HEIGHT_PADDING, screen_height + CONTROL_AREA_HEIGHT_PADDING])
+
+                # Apply smoothing to the mouse movement
+                screen_x = (last_x * (SMOOTH_FACTOR - 1) + screen_x) / SMOOTH_FACTOR
+                screen_y = (last_y * (SMOOTH_FACTOR - 1) + screen_y) / SMOOTH_FACTOR
+                pyautogui.moveTo(screen_x, screen_y)
+
+                # Update last position for smoothing
+                last_x, last_y = screen_x, screen_y
+
+            # Draw hand landmarks on the frame
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+
+def process_face_landmarks(rects, gray):
+    """
+        Process facial landmarks for eye blink detection and mouse control.
+
+        Args:
+            rects: Detected face rectangles.
+            gray (numpy.ndarray): Grayscale version of the current frame.
+    """
+    global LEFT_EYE_STATUS, RIGHT_EYE_STATUS, LEFT_BLINK_TIME, RIGHT_BLINK_TIME, LEFT_HOLDING, RIGHT_HOLDING, BOTH_EYES_BLINKED
+    # Process each detected face
+    for rect in rects:
+        shape = predictor(gray, rect)
+        shape = face_utils.shape_to_np(shape)
+
+        # Get indices for left and right eyes
+        (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+        (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+        leftEye, rightEye = shape[lStart:lEnd], shape[rStart:rEnd]
+
+        # Ensure left eye is on the left side of the face
+        if leftEye[:, 0].mean() > rightEye[:, 0].mean():
+            leftEye, rightEye = rightEye, leftEye
+
+        # Calculate boundaries for eye regions with padding
+        leftEyeBounds = [max(min(leftEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                         min(max(leftEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                         max(min(leftEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                         min(max(leftEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
+        rightEyeBounds = [max(min(rightEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                          min(max(rightEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                          max(min(rightEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                          min(max(rightEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
+
+        # Extract eye images
+        leftEyeImg = gray[leftEyeBounds[2]:leftEyeBounds[3], leftEyeBounds[0]:leftEyeBounds[1]]
+        rightEyeImg = gray[rightEyeBounds[2]:rightEyeBounds[3], rightEyeBounds[0]:rightEyeBounds[1]]
+
+        # If both eye images are valid
+        if leftEyeImg.size > 0 and rightEyeImg.size > 0:
+            # Predict eye status (open/closed)
+            left_status = predict_eye_status(leftEyeImg)
+            right_status = predict_eye_status(rightEyeImg)
+
+            # Check for simultaneous blink
+            if left_status == 'closed' and right_status == 'closed':
+                BOTH_EYES_BLINKED = True
+                print("Both eyes blinked simultaneously")
+            else:
+                BOTH_EYES_BLINKED = False
+
+            # Process individual eye blinks if not a simultaneous blink
+            if not BOTH_EYES_BLINKED:
+                LEFT_EYE_STATUS, LEFT_BLINK_TIME, LEFT_HOLDING = check_eye_blink("left", left_status, LEFT_EYE_STATUS,
+                                                                                 LEFT_BLINK_TIME, LEFT_HOLDING)
+                RIGHT_EYE_STATUS, RIGHT_BLINK_TIME, RIGHT_HOLDING = check_eye_blink("right", right_status,
+                                                                                    RIGHT_EYE_STATUS, RIGHT_BLINK_TIME,
+                                                                                    RIGHT_HOLDING)
+        else:
+            # Set eye status to unknown if eye images are invalid
+            LEFT_EYE_STATUS, RIGHT_EYE_STATUS = 'Unknown', 'Unknown'
+
+
 def predict_eye_status(eye_image):
+    """
+        Predict the status of an eye (open or closed) using a pre-trained model.
+
+        Args:
+            eye_image (numpy.ndarray): Grayscale image of an eye.
+
+        Returns:
+            str: 'open' if the eye is predicted to be open, 'closed' otherwise.
+    """
     gray_image = np.stack((eye_image,) * 3, axis=-1)
     gray_image = cv2.resize(gray_image, (224, 224))
     gray_image = np.expand_dims(gray_image, axis=0)
@@ -80,16 +240,20 @@ def predict_eye_status(eye_image):
     return 'open' if predicted_class_index[0] == 1 else 'closed'
 
 
-'''
-    @description: Function to check for eye blinks and handle mouse actions
-    @param: eye: left or right eye
-    @param: status: current eye status
-    @param: previous_status: previous eye status
-    @param: previous_time: previous blink time
-    @param: is_holding: flag for holding mouse button
-    @return: updated eye status, blink time, and holding flag
-'''
 def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
+    """
+        Check for eye blinks and handle corresponding mouse actions.
+
+        Args:
+            eye (str): Identifier for the eye ('left' or 'right').
+            status (str): Current eye status ('open' or 'closed').
+            previous_status (str): Previous eye status.
+            previous_time (float): Timestamp of the previous blink.
+            is_holding (bool): Flag indicating if a mouse button is being held.
+
+        Returns:
+            tuple: Updated eye status, blink time, and holding flag.
+    """
     current_time = time.time()
     # Eye state transitions and corresponding actions
     if status == "closed" and previous_status == "open":
@@ -139,128 +303,36 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
     return previous_status, previous_time, is_holding
 
 
-# Main loop for processing video frames
-while True:
-    # Read a frame from the video stream
-    frame = vs.read()
-    if frame is None:
-        print("Failed to read frame from video stream.")
-        vs.stop()
-        cv2.destroyAllWindows()
-        exit()
+def main():
+    """
+       Main function to run the eye_finger-controlled mouse program.
+   """
+    vs = setup_video_stream()
 
-    # Flip the frame horizontally and resize it，convenient image processing
-    frame = cv2.flip(frame, 1)
-    frame = imutils.resize(frame)
-    # Convert the frame to grayscale and RGB
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    while True:
+        frame = vs.read()
+        if frame is None:
+            print("Failed to read frame from video stream.")
+            break
 
-    # Calculate the new center for the control area
-    new_center_y = CONTROL_AREA_HEIGHT // 2 + RECTANGLE_PADDING_TOP
-    # Draw a circle at the center of the control area
-    cv2.circle(frame, (center_x, new_center_y), 10, (0, 0, 255), -1)
-    # Draw a rectangle to represent the control(mapping) area
-    cv2.rectangle(frame, (center_x - CONTROL_AREA_WIDTH, new_center_y - CONTROL_AREA_HEIGHT),
-                  (center_x + CONTROL_AREA_WIDTH, new_center_y + CONTROL_AREA_HEIGHT), (0, 255, 0), 2)
+        frame, gray, rgb = process_frame(frame)
+        new_center_y = draw_finger_control_area(frame)
 
-    # Detect faces in the grayscale frame
-    rects = detector(gray, 0)
-    # Process the RGB frame for hand detection
-    results = hands.process(rgb)
+        rects = detector(gray, 0)
+        results = hands.process(rgb)
 
-    # If hand landmarks are detected, check if the tip of the index finger is within the control area
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            # Get the coordinates of the index finger tip
-            tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-            x, y = int(tip.x * frame_width), int(tip.y * frame_height)
-            # Check if the finger tip is within the control area
-            if (center_x - CONTROL_AREA_WIDTH <= x <= center_x + CONTROL_AREA_WIDTH) and (
-                    new_center_y - CONTROL_AREA_HEIGHT <= y <= new_center_y + CONTROL_AREA_HEIGHT):
-                # Activate mouse control if not already active
-                if not CONTROL_ACTIVE:
-                    CONTROL_ACTIVE = True
-                    pyautogui.moveTo(screen_width / 2, screen_height / 2)
+        process_hand_landmarks(results, frame, new_center_y)
+        process_face_landmarks(rects, gray)
 
-                # Map finger position to screen coordinates
-                screen_x = np.interp(x, [center_x - CONTROL_AREA_WIDTH, center_x + CONTROL_AREA_WIDTH],
-                                     [0 - CONTROL_AREA_WIDTH_PADDING, screen_width + CONTROL_AREA_WIDTH_PADDING])
-                screen_y = np.interp(y, [new_center_y - CONTROL_AREA_HEIGHT, new_center_y + CONTROL_AREA_HEIGHT],
-                                     [0 - CONTROL_AREA_HEIGHT_PADDING, screen_height + CONTROL_AREA_HEIGHT_PADDING])
+        cv2.imshow("Frame", frame)
+        key = cv2.waitKey(1) & 0xFF
 
-                # Apply smoothing to the mouse movement
-                screen_x = (last_x * (SMOOTH_FACTOR - 1) + screen_x) / SMOOTH_FACTOR
-                screen_y = (last_y * (SMOOTH_FACTOR - 1) + screen_y) / SMOOTH_FACTOR
-                pyautogui.moveTo(screen_x, screen_y)
+        if key == ord("q"):
+            break
 
-                # Update last position for smoothing
-                last_x, last_y = screen_x, screen_y
+    cv2.destroyAllWindows()
+    vs.stop()
 
-            # Draw hand landmarks on the frame
-            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-    # Process each detected face
-    for rect in rects:
-        # Predict facial landmarks
-        shape = predictor(gray, rect)
-        shape = face_utils.shape_to_np(shape)
-
-        # Get indices for left and right eyes
-        (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
-        (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
-        leftEye, rightEye = shape[lStart:lEnd], shape[rStart:rEnd]
-
-        # Ensure left eye is on the left side of the face and right eye is on the right side of the face
-        if leftEye[:, 0].mean() > rightEye[:, 0].mean():
-            leftEye, rightEye = rightEye, leftEye
-
-        # Calculate boundaries for eye regions with padding
-        leftEyeBounds = [max(min(leftEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
-                         min(max(leftEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
-                         max(min(leftEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
-                         min(max(leftEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
-        rightEyeBounds = [max(min(rightEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
-                          min(max(rightEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
-                          max(min(rightEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
-                          min(max(rightEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
-
-        # Extract eye images
-        leftEyeImg = gray[leftEyeBounds[2]:leftEyeBounds[3], leftEyeBounds[0]:leftEyeBounds[1]]
-        rightEyeImg = gray[rightEyeBounds[2]:rightEyeBounds[3], rightEyeBounds[0]:rightEyeBounds[1]]
-
-        # If both eye images are valid
-        if leftEyeImg.size > 0 and rightEyeImg.size > 0:
-            # Predict eye status (open/closed)
-            left_status = predict_eye_status(leftEyeImg)
-            right_status = predict_eye_status(rightEyeImg)
-
-            # Check for simultaneous blink
-            if left_status == 'closed' and right_status == 'closed':
-                BOTH_EYES_BLINKED = True
-                print("Both eyes blinked simultaneously")
-            else:
-                BOTH_EYES_BLINKED = False
-
-            # Process individual eye blinks if not a simultaneous blink
-            if not BOTH_EYES_BLINKED:
-                LEFT_EYE_STATUS, LEFT_BLINK_TIME, LEFT_HOLDING = check_eye_blink("left", left_status, LEFT_EYE_STATUS,
-                                                                                 LEFT_BLINK_TIME, LEFT_HOLDING)
-                RIGHT_EYE_STATUS, RIGHT_BLINK_TIME, RIGHT_HOLDING = check_eye_blink("right", right_status,
-                                                                                    RIGHT_EYE_STATUS, RIGHT_BLINK_TIME,
-                                                                                    RIGHT_HOLDING)
-        else:
-            # Set eye status to unknown if eye images are invalid
-            left_status, right_status = 'Unknown', 'Unknown'
-
-    # Display the processed frame
-    cv2.imshow("Frame", frame)
-    key = cv2.waitKey(1) & 0xFF
-
-    # Break the loop if 'q' is pressed
-    if key == ord("q"):
-        break
-
-# Clean up
-cv2.destroyAllWindows()
-vs.stop()
+if __name__ == '__main__':
+    main()
