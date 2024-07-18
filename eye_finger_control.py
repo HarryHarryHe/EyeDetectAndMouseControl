@@ -27,15 +27,26 @@ print("[INFO] starting video stream...")
 vs = VideoStream(src=0).start()
 time.sleep(2.0)
 
-padding = 10  # 设置扩展像素数，方便获取更多眼部区域用于模型预测
+EYE_EXTRACT_PADDING = 10  # 设置扩展像素数，方便获取更多眼部区域用于模型预测
+RECTANGLE_PADDING_TOP = 50  # 设置矩形区域顶部扩展像素数
+
+BLINK_THRESHOLD_TIME = 0.37  # 眨眼阈值，该值内判定为眨眼
+BLINK_CLOSED_TIME = 0.5  # 闭眼持续时间阈值，该值内判定为长按鼠标
+
+CONTROL_AREA_WIDTH_PADDING, CONTROL_AREA_HEIGHT_PADDING = 75, 75  # 设置控制区域边界扩展像素数，便于鼠标边缘控制，方便映射
+
+CONTROL_AREA_WIDTH, CONTROL_AREA_HEIGHT = 160, 80
+
+CONTROL_ACTIVE = False  # 控制鼠标的激活状态
 
 # 初始化一些用于检测眼睛状态的变量
-left_eye_status, right_eye_status = "open", "open"
-left_blink_time, right_blink_time = 0, 0
-both_eyes_blinked, left_holding, right_holding = False, False, False
+LEFT_EYE_STATUS, RIGHT_EYE_STATUS = "open", "open"
+LEFT_BLINK_TIME, RIGHT_BLINK_TIME = 0, 0
+BOTH_EYES_BLINKED, LEFT_HOLDING, RIGHT_HOLDING = False, False, False
 
 # 获取屏幕尺寸
 screen_width, screen_height = pyautogui.size()
+print("Screen size: ", screen_width, screen_height)
 
 # 获取视频帧尺寸
 frame = vs.read()
@@ -48,13 +59,10 @@ frame_height, frame_width, _ = frame.shape
 
 # 计算视频帧中心区域的边界
 center_x, center_y = frame_width // 2, frame_height // 2
-center_area_width, center_area_height = 128, 64
-
-control_active = False  # 控制鼠标的激活状态
 
 # 平滑滤波器初始化
 last_x, last_y = screen_width // 2, screen_height // 2
-smooth_factor = 3
+SMOOTH_FACTOR = 3  # 平滑滤波器系数
 
 
 # 模型预测
@@ -77,7 +85,7 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
     # 眼睛状态从闭变为开，检查闭合时长
     elif status == "open" and previous_status == "closed":
         # 检查闭合时长以决定是点击还是长按
-        if current_time - previous_time < 0.37:  # 假设小于0.37秒为点击, ""为长按经过测试0.37最符合我个人的操作习惯""
+        if current_time - previous_time < BLINK_THRESHOLD_TIME:  # 假设小于0.37秒为点击, ""为长按经过测试0.37最符合我个人的操作习惯""
             if not is_holding:
                 if eye == "left":
                     pyautogui.click(button='left')  # 执行单击操作
@@ -101,7 +109,7 @@ def check_eye_blink(eye, status, previous_status, previous_time, is_holding):
 
     # 眼睛持续闭合但还未触发长按（超过某个阈值，例如0.5秒）
     elif status == "closed" and previous_status == "closed" and not is_holding:
-        if current_time - previous_time > 0.5:
+        if current_time - previous_time > BLINK_CLOSED_TIME:
             is_holding = True
             if eye == "left":
                 pyautogui.mouseDown(button='left')  # 模拟鼠标左键按下
@@ -128,10 +136,10 @@ while True:
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    new_center_y = frame_height - center_area_height
+    new_center_y = CONTROL_AREA_HEIGHT // 2 + RECTANGLE_PADDING_TOP  # 将中心区域移动到顶部区域
     cv2.circle(frame, (center_x, new_center_y), 10, (0, 0, 255), -1)
-    cv2.rectangle(frame, (center_x - center_area_width, new_center_y - center_area_height),
-                  (center_x + center_area_width, new_center_y + center_area_height), (0, 255, 0), 2)
+    cv2.rectangle(frame, (center_x - CONTROL_AREA_WIDTH, new_center_y - CONTROL_AREA_HEIGHT),
+                  (center_x + CONTROL_AREA_WIDTH, new_center_y + CONTROL_AREA_HEIGHT), (0, 255, 0), 2)
 
     rects = detector(gray, 0)
     results = hands.process(rgb)
@@ -141,18 +149,19 @@ while True:
             tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
             x, y = int(tip.x * frame_width), int(tip.y * frame_height)
 
-            if (center_x - center_area_width <= x <= center_x + center_area_width) and (
-                    new_center_y - center_area_height <= y <= new_center_y + center_area_height):
-                if not control_active:
-                    control_active = True
+            if (center_x - CONTROL_AREA_WIDTH <= x <= center_x + CONTROL_AREA_WIDTH) and (
+                    new_center_y - CONTROL_AREA_HEIGHT <= y <= new_center_y + CONTROL_AREA_HEIGHT):
+                if not CONTROL_ACTIVE:
+                    CONTROL_ACTIVE = True
                     pyautogui.moveTo(screen_width / 2, screen_height / 2)
 
-                screen_x = np.interp(x, [center_x - center_area_width, center_x + center_area_width], [0, screen_width])
-                screen_y = np.interp(y, [new_center_y - center_area_height, new_center_y + center_area_height],
-                                     [0, screen_height])
+                screen_x = np.interp(x, [center_x - CONTROL_AREA_WIDTH, center_x + CONTROL_AREA_WIDTH],
+                                     [0 - CONTROL_AREA_WIDTH_PADDING, screen_width + CONTROL_AREA_WIDTH_PADDING])
+                screen_y = np.interp(y, [new_center_y - CONTROL_AREA_HEIGHT, new_center_y + CONTROL_AREA_HEIGHT],
+                                     [0 - CONTROL_AREA_HEIGHT_PADDING, screen_height + CONTROL_AREA_HEIGHT_PADDING])
 
-                screen_x = (last_x * (smooth_factor - 1) + screen_x) / smooth_factor
-                screen_y = (last_y * (smooth_factor - 1) + screen_y) / smooth_factor
+                screen_x = (last_x * (SMOOTH_FACTOR - 1) + screen_x) / SMOOTH_FACTOR
+                screen_y = (last_y * (SMOOTH_FACTOR - 1) + screen_y) / SMOOTH_FACTOR
                 pyautogui.moveTo(screen_x, screen_y)
 
                 last_x, last_y = screen_x, screen_y
@@ -170,10 +179,14 @@ while True:
         if leftEye[:, 0].mean() > rightEye[:, 0].mean():
             leftEye, rightEye = rightEye, leftEye
 
-        leftEyeBounds = [max(min(leftEye[:, 0]) - padding, 0), min(max(leftEye[:, 0]) + padding, gray.shape[1]),
-                         max(min(leftEye[:, 1]) - padding, 0), min(max(leftEye[:, 1]) + padding, gray.shape[0])]
-        rightEyeBounds = [max(min(rightEye[:, 0]) - padding, 0), min(max(rightEye[:, 0]) + padding, gray.shape[1]),
-                          max(min(rightEye[:, 1]) - padding, 0), min(max(rightEye[:, 1]) + padding, gray.shape[0])]
+        leftEyeBounds = [max(min(leftEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                         min(max(leftEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                         max(min(leftEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                         min(max(leftEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
+        rightEyeBounds = [max(min(rightEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                          min(max(rightEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                          max(min(rightEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                          min(max(rightEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
 
         leftEyeImg = gray[leftEyeBounds[2]:leftEyeBounds[3], leftEyeBounds[0]:leftEyeBounds[1]]
         rightEyeImg = gray[rightEyeBounds[2]:rightEyeBounds[3], rightEyeBounds[0]:rightEyeBounds[1]]
@@ -183,17 +196,17 @@ while True:
             right_status = predict_eye_status(rightEyeImg)
 
             if left_status == 'closed' and right_status == 'closed':
-                both_eyes_blinked = True
+                BOTH_EYES_BLINKED = True
                 print("Both eyes blinked simultaneously")
             else:
-                both_eyes_blinked = False
+                BOTH_EYES_BLINKED = False
 
-            if not both_eyes_blinked:
-                left_eye_status, left_blink_time, left_holding = check_eye_blink("left", left_status, left_eye_status,
-                                                                                 left_blink_time, left_holding)
-                right_eye_status, right_blink_time, right_holding = check_eye_blink("right", right_status,
-                                                                                    right_eye_status, right_blink_time,
-                                                                                    right_holding)
+            if not BOTH_EYES_BLINKED:
+                LEFT_EYE_STATUS, LEFT_BLINK_TIME, LEFT_HOLDING = check_eye_blink("left", left_status, LEFT_EYE_STATUS,
+                                                                                 LEFT_BLINK_TIME, LEFT_HOLDING)
+                RIGHT_EYE_STATUS, RIGHT_BLINK_TIME, RIGHT_HOLDING = check_eye_blink("right", right_status,
+                                                                                    RIGHT_EYE_STATUS, RIGHT_BLINK_TIME,
+                                                                                    RIGHT_HOLDING)
         else:
             left_status, right_status = 'Unknown', 'Unknown'
 
