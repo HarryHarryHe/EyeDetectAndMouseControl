@@ -49,7 +49,7 @@ BOTH_EYES_BLINKED, LEFT_HOLDING, RIGHT_HOLDING = False, False, False
 # Initialize pyttsx3 engine for text-to-speech output
 engine = pyttsx3.init()
 BOTH_EYES_CLOSED_START_TIME = 0
-EXIT_BLINK_TIME = 5.0  # 5 seconds of both eyes closed to exit
+EXIT_BLINK_TIME = 3.0  # 3 seconds of both eyes closed to exit
 
 # Get screen size
 screen_width, screen_height = pyautogui.size()
@@ -164,6 +164,47 @@ def process_hand_landmarks(results, frame, new_center_y):
             # Draw hand landmarks on the frame
             mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
+def extract_eyes_img(rect, gray):
+    """
+        Extract images of left and right eyes from a face detected in a grayscale image.
+
+        Parameters:
+        rect (dlib.rectangle): The rectangle representing the detected face.
+        gray (numpy.ndarray): The grayscale image containing the face.
+
+        Returns:
+        tuple:
+            - leftEyeImg: Grayscale image of the left eye.
+            - rightEyeImg: Grayscale image of the right eye.
+    """
+    shape = predictor(gray, rect)
+    shape = face_utils.shape_to_np(shape)
+
+    # Get indices for left and right eyes
+    (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+    (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+    leftEye, rightEye = shape[lStart:lEnd], shape[rStart:rEnd]
+
+    # Ensure left eye is on the left side of the face
+    if leftEye[:, 0].mean() > rightEye[:, 0].mean():
+        leftEye, rightEye = rightEye, leftEye
+
+    # Calculate boundaries for eye regions with padding
+    leftEyeBounds = [max(min(leftEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                     min(max(leftEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                     max(min(leftEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                     min(max(leftEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
+    rightEyeBounds = [max(min(rightEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
+                      min(max(rightEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
+                      max(min(rightEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
+                      min(max(rightEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
+
+    # Extract eye images
+    leftEyeImg = gray[leftEyeBounds[2]:leftEyeBounds[3], leftEyeBounds[0]:leftEyeBounds[1]]
+    rightEyeImg = gray[rightEyeBounds[2]:rightEyeBounds[3], rightEyeBounds[0]:rightEyeBounds[1]]
+
+    return leftEyeImg, rightEyeImg
+
 
 def process_face_landmarks(rects, gray):
     """
@@ -176,31 +217,8 @@ def process_face_landmarks(rects, gray):
     global LEFT_EYE_STATUS, RIGHT_EYE_STATUS, LEFT_BLINK_TIME, RIGHT_BLINK_TIME, LEFT_HOLDING, RIGHT_HOLDING, BOTH_EYES_BLINKED, BOTH_EYES_CLOSED_START_TIME
     # Process each detected face
     for rect in rects:
-        shape = predictor(gray, rect)
-        shape = face_utils.shape_to_np(shape)
-
-        # Get indices for left and right eyes
-        (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
-        (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
-        leftEye, rightEye = shape[lStart:lEnd], shape[rStart:rEnd]
-
-        # Ensure left eye is on the left side of the face
-        if leftEye[:, 0].mean() > rightEye[:, 0].mean():
-            leftEye, rightEye = rightEye, leftEye
-
-        # Calculate boundaries for eye regions with padding
-        leftEyeBounds = [max(min(leftEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
-                         min(max(leftEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
-                         max(min(leftEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
-                         min(max(leftEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
-        rightEyeBounds = [max(min(rightEye[:, 0]) - EYE_EXTRACT_PADDING, 0),
-                          min(max(rightEye[:, 0]) + EYE_EXTRACT_PADDING, gray.shape[1]),
-                          max(min(rightEye[:, 1]) - EYE_EXTRACT_PADDING, 0),
-                          min(max(rightEye[:, 1]) + EYE_EXTRACT_PADDING, gray.shape[0])]
-
-        # Extract eye images
-        leftEyeImg = gray[leftEyeBounds[2]:leftEyeBounds[3], leftEyeBounds[0]:leftEyeBounds[1]]
-        rightEyeImg = gray[rightEyeBounds[2]:rightEyeBounds[3], rightEyeBounds[0]:rightEyeBounds[1]]
+        # Extract eye images from the face
+        leftEyeImg, rightEyeImg = extract_eyes_img(rect, gray)
 
         # If both eye images are valid
         if leftEyeImg.size > 0 and rightEyeImg.size > 0:
@@ -349,7 +367,9 @@ def main():
         new_center_y = draw_finger_control_area(frame)
         rects = detector(gray, 0)
         results = hands.process(rgb)
-
+        # Add text to the frame indicating "Close eyes 3s to Exit"
+        cv2.putText(frame, "Close eyes 3s to Exit", (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         process_hand_landmarks(results, frame, new_center_y)
         exit_program = process_face_landmarks(rects, gray)
 
@@ -369,6 +389,51 @@ def main():
     vs.stop()
 
 
+def wait_for_blink():
+    """
+    Wait for the user to blink before starting the main program.
+
+    Returns: None
+    """
+    print("Waiting for blink to start the program...")
+
+    vs = VideoStream(src=0).start()
+    time.sleep(3.0)
+    speak("Blink to start the program")
+
+    while True:
+        frame = vs.read()
+        if frame is None:
+            continue
+
+        frame, gray, _ = process_frame(frame)
+        rects = detector(gray, 0)
+
+        # Add text to the frame indicating "Blink to Link"
+        cv2.putText(frame, "Blink to Link", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        for rect in rects:
+            leftEye, rightEye = extract_eyes_img(rect, gray)
+
+            if leftEye.size > 0 and rightEye.size > 0:
+                leftEyeStatus = predict_eye_status(leftEye)
+                rightEyeStatus = predict_eye_status(rightEye)
+
+                if leftEyeStatus == 'closed' and rightEyeStatus == 'closed':
+                    vs.stop()
+                    cv2.destroyAllWindows()
+                    return
+
+        cv2.imshow("Blink to Start", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):
+            break
+
+    vs.stop()
+    cv2.destroyAllWindows()
+
+
 if __name__ == '__main__':
-    speak("System Starting, Close eyes lasting for five seconds to stop the program")
+    wait_for_blink()
+    speak("System Starting")
     main()
