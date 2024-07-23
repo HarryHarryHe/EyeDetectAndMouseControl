@@ -37,7 +37,7 @@ BLINK_CLOSED_TIME = 0.5  # Time threshold for mouse long press detection
 # Set the number of pixels to expand the boundary of the control area for easy mouse edge control and mapping
 CONTROL_AREA_WIDTH_PADDING, CONTROL_AREA_HEIGHT_PADDING = 75, 75
 
-CONTROL_AREA_WIDTH, CONTROL_AREA_HEIGHT = 160, 80  # Size of control area
+CONTROL_AREA_WIDTH, CONTROL_AREA_HEIGHT = 200, 100  # Size of control area
 
 CONTROL_ACTIVE = False  # Flag for mouse control activation
 
