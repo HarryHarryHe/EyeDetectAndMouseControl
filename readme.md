@@ -1,4 +1,4 @@
-## Project Title: BlinkLink –Transforming Digital Access via Webcam-Based Eye-Tracking and Gesture Recognition Integration
+## Project Title: BlinkLink –Transforming Digital Access via Webcam-Based Eye-Tracking and Hand-Tracking Integration
 
 
 ### 1. environment
