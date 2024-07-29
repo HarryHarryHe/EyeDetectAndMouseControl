@@ -1,4 +1,4 @@
-## Project Title: BlinkLink(EyeAble)—通过眼动追踪系统为残障人士连接互联网
+## Project Title: BlinkLink –Transforming Digital Access via Webcam-Based Eye-Tracking and Gesture Recognition Integration
 
 
 ### 1. environment
@@ -14,9 +14,9 @@
 - `keras`: 2.13.1
 
 ### 2. Starting
-直接启动eye_finger_control.py即可运行程序。
+Simply launch eye_finger_control.py to run the program.
 
 ### 3.instruction
-1. 打开程序后，首先会出现一个窗口，提示用户进行初始化。
-2. 当用户在窗口前眨一下眼，正式进入控制界面
-3. 用户可通过左右眼开闭或长闭眼控制鼠标左右键和长按，通过食指移动来控制鼠标移动
+1. After opening the program, a window will first appear prompting the user to initialize.
+2. When the user blinks their eyes in front of the window, they officially enter the control interface.
+3. Users can control the left and right mouse buttons and long presses by opening or closing their eyes, and control mouse movement by moving their index finger.
