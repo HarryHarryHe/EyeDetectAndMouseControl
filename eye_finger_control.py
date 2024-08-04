@@ -69,7 +69,7 @@ center_x, center_y = frame_width // 2, frame_height // 2
 
 # Initialize smooth filter
 last_x, last_y = screen_width // 2, screen_height // 2
-SMOOTH_FACTOR = 3  # Smoothing factor for mouse movement
+SMOOTH_FACTOR = 2  # Smoothing factor for mouse movement
 
 
 def setup_video_stream():

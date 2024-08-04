@@ -5,11 +5,11 @@
 - `Python`：3.8
 - `dlib`：19.24.40
 - `opencv`：4.0.1
-- `opencv-python` 4.10.0.82
 - `numpy`：1.24.3
 - `pyautogui`：0.9.54
 - `imutils`: 0.5.4
 - `matplotlib`: 0.10.10
+- `mediapipe`: 0.10.10
 - `tensorflow`: 2.9.1
 - `keras`: 2.13.1
 
