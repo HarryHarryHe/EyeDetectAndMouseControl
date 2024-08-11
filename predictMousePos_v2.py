@@ -6,16 +6,20 @@ from imutils import face_utils
 import pyautogui
 from keras.models import load_model
 
+'''
+Using gaze to control mouse pointer position, but Fail 
+'''
+
 model = load_model("models/conv2d_2-EyeMouseMapper-0708.h5")
 width, height = 2880, 1800
-# 初始化dlib的面部检测器和面部标记预测器
+# Initialize the facial detector and facial marker predictor of dlib
 print("[INFO] loading facial landmark predictor...")
 detector = dlib.get_frontal_face_detector()
-predictor_path = "models/shape_predictor_68_face_landmarks.dat"  # 这里填写预测器文件路径
+predictor_path = "models/shape_predictor_68_face_landmarks.dat"
 predictor = dlib.shape_predictor(predictor_path)
 cascade = cv2.CascadeClassifier("models/haarcascade_eye.xml")
 video_capture = cv2.VideoCapture(0)
-padding = 10  # 眼睛区域扩展的像素数
+padding = 10  # Number of pixels for eye area expansion
 
 
 def normalize(x):
@@ -23,7 +27,6 @@ def normalize(x):
     return (x - minn) / (maxx - minn)
 
 
-# TODO 图片大小需要修改
 def scan(image_size=(448, 224)):
     ret, frame = video_capture.read()
     if not ret:
@@ -65,11 +68,10 @@ i = 1
 while True:
     eyes = scan()
     if not eyes is None:
-        # 注意：需要使用 np.expand_dims 增加一个批处理维度，模型预期输入形状为 (1, 224, 448, 3)
-        eye = cv2.resize(eyes, (448, 224))  # 调整图像大小以匹配模型输入
-        eye = eye / 255.0  # 归一化像素值
-        eye = np.expand_dims(eye, axis=-1)  # 增加一个维度以匹配模型输入要求
-        eye = np.expand_dims(eye, axis=0)  # 增加批处理维度
+        eye = cv2.resize(eyes, (448, 224))  # Adjust image size to match model input
+        eye = eye / 255.0  # Normalized
+        eye = np.expand_dims(eye, axis=-1)
+        eye = np.expand_dims(eye, axis=0)
         # if i==1:
         #     cv2.imwrite('eye.jpg', eye)
         #     i=0
